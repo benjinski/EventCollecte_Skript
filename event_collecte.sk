@@ -1,14 +1,40 @@
 # ============================================================
-# Event Collecte — GUI + TOP + YAML + VAR (ULTRA COMPAT)
-# Requis: skript-yaml
+# 📊 EVENT COLLECTE — GUI + TOP + YAML + API
+# ------------------------------------------------------------
+# • Stockage persistant local (YAML)
+# • Rotation automatique de 3 items de collecte
+# • Menu GUI interactif (/event)
+# • Classement Top 10 stable
+# • Variables API réutilisables dans d'autres Skripts
+# ------------------------------------------------------------
+# 📦 Requis : skript-yaml
+# 📁 Data  : plugins/Skript/data/event_points.yml
 #
-# ✅ Source de vérité: YAML (plugins/Skript/data/event_points.yml)
-# ✅ Variables réutilisables dans d'autres skripts:
-#    - Points joueur: {event::points::<UUID>}
-#    - Top en 1 ligne: {event::topText}
+# 💬 Commandes joueurs :
+# • /event
+#   → Ouvre le menu de l’event
+# • /event top
+#   → Affiche le classement Top Event
+# • /event points
+#   → Affiche vos points personnels
 #
-# ✅ Top 10 stable (pas de loop-value-1 / loop-index-1)
-# ✅ Commande admin: /event remove <joueur>
+# 👑 Commandes admin (permission : event.admin) :
+# • /event force
+#   → Force la rotation des items
+# • /event setpoints <joueur> <montant>
+#   → Définit les points d’un joueur
+# • /event addpoints <joueur> <montant>
+#   → Ajoute des points à un joueur
+# • /event resetpoints <joueur>
+#   → Réinitialise les points d’un joueur
+# • /event remove <joueur>
+#   → Supprime un joueur de l’event
+#
+# 🔌 Variables API :
+# • Points joueur : {event::points::<UUID>}
+# • Top 1 ligne   : {event::topText}
+# ------------------------------------------------------------
+# 👨‍💻 Auteur : Benjinski
 # ============================================================
 
 options:
