@@ -1,3 +1,5 @@
+<img width="1536" height="1024" alt="ChatGPT Image 28 janv  2026, 12_18_32" src="https://github.com/user-attachments/assets/9947acab-4bc7-4ed6-aa94-c520a05b6be5" />
+
 📊 EventCollecte — Event de collecte pour Minecraft (Skript)
 
 📦 Informations générales
