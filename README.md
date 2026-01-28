@@ -2,7 +2,7 @@
 
 📦 Informations générales
 Nom : EventCollecte
-Auteur :
+Auteur : Benjinski
 Version : 1.0
 Type : Skript serveur
 Dépendances : Skript, skript-yaml
