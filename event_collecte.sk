@@ -1,0 +1,564 @@
+# ============================================================
+# Event Collecte — GUI + TOP + YAML + VAR (ULTRA COMPAT)
+# Requis: skript-yaml
+#
+# ✅ Source de vérité: YAML (plugins/Skript/data/event_points.yml)
+# ✅ Variables réutilisables dans d'autres skripts:
+#    - Points joueur: {event::points::<UUID>}
+#    - Top en 1 ligne: {event::topText}
+#
+# ✅ Top 10 stable (pas de loop-value-1 / loop-index-1)
+# ✅ Commande admin: /event remove <joueur>
+# ============================================================
+
+options:
+  prefix: &8[&6EVENT&8]&7
+  permUse: event.use
+  permAdmin: event.admin
+
+  guiTitle: &6&lEvent Collecte
+  guiRows: 5
+
+  slotItem1: 11
+  slotItem2: 13
+  slotItem3: 15
+  slotInfo: 31
+  slotTop: 33
+
+  refreshSeconds: 10800
+  clickCooldown: 1
+
+  msgNoPerm: &cTu n'as pas la permission.
+  msgNoItem: &cTu n'as aucun &e<name> &cdans ton inventaire.
+  msgGained: &aTu as donné &e<amount> &a→ +&e<points> &apoints.
+  msgForced: &aRotation forcée : nouveaux items disponibles !
+  msgYourPoints: &7Tes points: &e<points>
+
+  dataFile: plugins/Skript/data/event_points.yml
+  yamlId: event_points
+
+# ------------------------------------------------------------
+# YAML HELPERS (SAFE)
+# ------------------------------------------------------------
+function yamlEnsureLoaded():
+  load yaml "{@dataFile}" as "{@yamlId}"
+
+function trackUUID(id: text):
+  if {_id} is not in {event::uuids::*}:
+    add {_id} to {event::uuids::*}
+
+function yamlRegisterPlayer(p: offlineplayer):
+  yamlEnsureLoaded()
+  set {_id} to "%uuid of {_p}%"
+  trackUUID({_id})
+
+  # name
+  if {_p} is online:
+    set yaml value "players.%{_id}%.name" in "{@yamlId}" to name of {_p}
+  else:
+    set {_oldName} to yaml value "players.%{_id}%.name" in "{@yamlId}"
+    if {_oldName} is not set:
+      set yaml value "players.%{_id}%.name" in "{@yamlId}" to "%{_p}%"
+
+  # init points
+  set {_v} to yaml value "players.%{_id}%.points" in "{@yamlId}"
+  if {_v} is not set:
+    set yaml value "players.%{_id}%.points" in "{@yamlId}" to 0
+
+  save yaml "{@yamlId}"
+
+function yamlGetPoints(id: text) :: number:
+  yamlEnsureLoaded()
+  set {_v} to yaml value "players.%{_id}%.points" in "{@yamlId}"
+  if {_v} is not set:
+    return 0
+  return round({_v} + 0)
+
+function yamlGetName(id: text) :: text:
+  yamlEnsureLoaded()
+  set {_n} to yaml value "players.%{_id}%.name" in "{@yamlId}"
+  if {_n} is not set:
+    return "Inconnu"
+  return {_n}
+
+function yamlSetPoints(id: text, amount: number):
+  yamlEnsureLoaded()
+  set {_a} to round({_amount} + 0)
+  set yaml value "players.%{_id}%.points" in "{@yamlId}" to {_a}
+  save yaml "{@yamlId}"
+
+function yamlAddPoints(id: text, amount: number):
+  yamlEnsureLoaded()
+  set {_cur} to yamlGetPoints({_id})
+  set {_a} to round({_amount} + 0)
+  set {_new} to round({_cur} + {_a})
+  set yaml value "players.%{_id}%.points" in "{@yamlId}" to {_new}
+  save yaml "{@yamlId}"
+
+# ------------------------------------------------------------
+# VAR GLOBALE (API) — à réutiliser partout:
+# {event::points::<UUID>}
+# + top 1 ligne: {event::topText}
+# ------------------------------------------------------------
+function syncEventPoints(id: text):
+  set {event::points::%{_id}%} to yamlGetPoints({_id})
+
+function syncAllEventPoints():
+  yamlEnsureLoaded()
+  clear {event::points::*}
+  loop {event::uuids::*}:
+    syncEventPoints(loop-value)
+
+# ------------------------------------------------------------
+# ROTATION (3 items uniques)
+# ------------------------------------------------------------
+function rotateEventItems():
+  set {_a1} to random element out of {event::pool::*}
+
+  set {_a2} to random element out of {event::pool::*}
+  while {_a2} is {_a1}:
+    set {_a2} to random element out of {event::pool::*}
+
+  set {_a3} to random element out of {event::pool::*}
+  while {_a3} is {_a1}:
+    set {_a3} to random element out of {event::pool::*}
+  while {_a3} is {_a2}:
+    set {_a3} to random element out of {event::pool::*}
+
+  set {event::active::1} to {_a1}
+  set {event::active::2} to {_a2}
+  set {event::active::3} to {_a3}
+
+# ------------------------------------------------------------
+# TOP (stable)
+# - {event::top::*} = liste lignes (lore)
+# - {event::topText} = 1 ligne compact
+# ------------------------------------------------------------
+function rebuildTop():
+  clear {event::top::*}
+  clear {_copy::*}
+
+  loop {event::uuids::*}:
+    set {_id} to loop-value
+
+    set {_s} to {event::points::%{_id}%}
+    if {_s} is not set:
+      set {_s} to yamlGetPoints({_id})
+      set {event::points::%{_id}%} to {_s}
+
+    set {_copy::%{_id}%} to round({_s} + 0)
+
+  if size of {_copy::*} <= 0:
+    add "&7Aucun score pour l’instant." to {event::top::*}
+    set {event::topText} to "&7Aucun score pour l’instant."
+    stop
+
+  set {_rank} to 1
+  while {_rank} <= 10:
+    set {_bestId} to ""
+    set {_bestScore} to -1
+
+    loop {_copy::*}:
+      set {_id} to loop-index
+      set {_v} to loop-value
+      if {_v} is not set:
+        set {_v} to 0
+      set {_v} to round({_v} + 0)
+
+      if {_v} > {_bestScore}:
+        set {_bestScore} to {_v}
+        set {_bestId} to {_id}
+
+    if {_bestId} is "":
+      stop
+
+    set {_name} to yamlGetName({_bestId})
+    add "&e#%{_rank}% &f%{_name}% &8— &a%{_bestScore}% &7pts" to {event::top::*}
+
+    delete {_copy::%{_bestId}%}
+    add 1 to {_rank}
+
+  # TOP en 1 ligne (variable)
+  set {event::topText} to ""
+  set {_i} to 1
+  loop {event::top::*}:
+    if {_i} = 1:
+      set {event::topText} to loop-value
+    else:
+      set {event::topText} to "%{event::topText}% &8| %loop-value%"
+    add 1 to {_i}
+
+# ------------------------------------------------------------
+# GUI ITEM BUILDER
+# ------------------------------------------------------------
+function buildEventItem(entry: text) :: item:
+  set {_parts::*} to split {_entry} at "|"
+  set {_matText} to {_parts::1}
+  set {_ptsText} to {_parts::2}
+  set {_disp} to {_parts::3}
+  set {_glowText} to {_parts::4}
+  set {_loreText} to {_parts::5}
+
+  set {_matType} to {_matText} parsed as item type
+  if {_matType} is not set:
+    set {_matType} to stone
+
+  set {_ptsPer} to {_ptsText} parsed as number
+  if {_ptsPer} is not set:
+    set {_ptsPer} to 1
+  set {_ptsPer} to round({_ptsPer} + 0)
+
+  set {_it} to {_matType}
+  set name of {_it} to {_disp}
+
+  if {_loreText} is not "":
+    set {_loreLines::*} to split {_loreText} at ";;"
+    set lore of {_it} to {_loreLines::*}
+
+  add "&8" to lore of {_it}
+  add "&7Clique pour donner &eTOUT &7ce que tu as." to lore of {_it}
+  add "&7Points: &a%{_ptsPer}% &7par item." to lore of {_it}
+
+  if {_glowText} is "true":
+    enchant {_it} with unbreaking 1
+
+  return {_it}
+
+# ------------------------------------------------------------
+# OPEN MENU
+# ------------------------------------------------------------
+function openEventMenu(p: player):
+  yamlRegisterPlayer({_p})
+  set {_id} to "%uuid of {_p}%"
+  syncEventPoints({_id})
+
+  set {_sec} to {event::timeLeft}
+  if {_sec} is not set:
+    set {_sec} to {@refreshSeconds}
+
+  set {_h} to floor({_sec} / 3600)
+  set {_remain} to {_sec} - ({_h} * 3600)
+  set {_m} to floor({_remain} / 60)
+  set {_s} to {_remain} - ({_m} * 60)
+
+  set {_mm} to "%{_m}%"
+  set {_ss} to "%{_s}%"
+  if length of {_mm} = 1:
+    set {_mm} to "0%{_mm}%"
+  if length of {_ss} = 1:
+    set {_ss} to "0%{_ss}%"
+  set {_timeLeft} to "%{_h}%:%{_mm}%:%{_ss}%"
+
+  set {_inv} to chest inventory with {@guiRows} rows named "{@guiTitle}"
+
+  set {_glass} to gray stained glass pane named " "
+  loop {@guiRows} * 9 times:
+    set slot (loop-number - 1) of {_inv} to {_glass}
+
+  set slot {@slotItem1} of {_inv} to buildEventItem({event::active::1})
+  set slot {@slotItem2} of {_inv} to buildEventItem({event::active::2})
+  set slot {@slotItem3} of {_inv} to buildEventItem({event::active::3})
+
+  set {_pts} to {event::points::%{_id}%}
+  if {_pts} is not set:
+    set {_pts} to 0
+
+  set {_info} to book named "&e&lInfos Event"
+  set lore of {_info} to "&7Tes points: &e%{_pts}%" and "&7Prochaine rotation: &b%{_timeLeft}%"
+  set slot {@slotInfo} of {_inv} to {_info}
+
+  rebuildTop()
+  set {_topBook} to book named "&6&lTop Event"
+  set lore of {_topBook} to {event::top::*}
+  add "&8" to lore of {_topBook}
+  add "&7Commande: &e/event top" to lore of {_topBook}
+  set slot {@slotTop} of {_inv} to {_topBook}
+
+  open {_inv} to {_p}
+
+# ------------------------------------------------------------
+# INIT
+# ------------------------------------------------------------
+on load:
+  yamlEnsureLoaded()
+
+  if {event::pool::*} is not set:
+    clear {event::pool::*}
+    add "diamond|5|&bDiamant|true|&7Rapporte &a5 &7points par diamant" to {event::pool::*}
+    add "iron ingot|2|&fLingot de fer|false|&7Rapporte &a2 &7points par lingot" to {event::pool::*}
+    add "gold ingot|3|&6Lingot d'or|false|&7Rapporte &a3 &7points par lingot" to {event::pool::*}
+    add "emerald|6|&aÉmeraude|true|&7Rapporte &a6 &7points par émeraude" to {event::pool::*}
+    add "copper ingot|1|&cLingot de cuivre|false|&7Rapporte &a1 &7point par lingot" to {event::pool::*}
+
+  if {event::timeLeft} is not set:
+    set {event::timeLeft} to {@refreshSeconds}
+
+  if {event::active::1} is not set:
+    rotateEventItems()
+
+  syncAllEventPoints()
+  rebuildTop()
+
+on unload:
+  save yaml "{@yamlId}"
+  unload yaml "{@yamlId}"
+
+# ------------------------------------------------------------
+# JOIN
+# ------------------------------------------------------------
+on join:
+  yamlRegisterPlayer(player)
+  set {_id} to "%uuid of player%"
+  syncEventPoints({_id})
+
+# ------------------------------------------------------------
+# TIMER ROTATION + COOLDOWN
+# ------------------------------------------------------------
+every 1 second:
+  subtract 1 from {event::timeLeft}
+  if {event::timeLeft} <= 0:
+    set {event::timeLeft} to {@refreshSeconds}
+    rotateEventItems()
+    broadcast "{@prefix} &eLes items de l'event ont changé !"
+
+  # cooldown clic (par UUID)
+  loop {event::clickcd::*}:
+    set {_k} to loop-index
+    subtract 1 from {event::clickcd::%{_k}%}
+    if {event::clickcd::%{_k}%} <= 0:
+      delete {event::clickcd::%{_k}%}
+
+# ------------------------------------------------------------
+# COMMANDES
+# ------------------------------------------------------------
+command /event [<text>] [<offlineplayer>] [<number>]:
+  permission: {@permUse}
+  permission message: {@prefix} {@msgNoPerm}
+  trigger:
+    if argument 1 is not set:
+      openEventMenu(player)
+      stop
+
+    if argument 1 is "top":
+      rebuildTop()
+      send "{@prefix} &6&lTop Event:" to player
+      loop {event::top::*}:
+        send " %loop-value%" to player
+      stop
+
+    if argument 1 is "points":
+      yamlRegisterPlayer(player)
+      set {_id} to "%uuid of player%"
+      syncEventPoints({_id})
+      set {_pp} to {event::points::%{_id}%}
+      if {_pp} is not set:
+        set {_pp} to 0
+      set {_m} to "{@msgYourPoints}"
+      replace all "<points>" with "%{_pp}%" in {_m}
+      send "{@prefix} %{_m}%" to player
+      stop
+
+    # ---------------- ADMIN ----------------
+    if player does not have permission "{@permAdmin}":
+      send "{@prefix} {@msgNoPerm}" to player
+      stop
+
+    if argument 1 is "force":
+      set {event::timeLeft} to {@refreshSeconds}
+      rotateEventItems()
+      send "{@prefix} {@msgForced}" to player
+      broadcast "{@prefix} &eLes items de l'event ont changé !"
+      openEventMenu(player)
+      stop
+
+    if argument 1 is "setpoints":
+      if argument 2 is not set:
+        send "{@prefix} &cUsage: /event setpoints <joueur> <montant>" to player
+        stop
+      if argument 3 is not set:
+        send "{@prefix} &cUsage: /event setpoints <joueur> <montant>" to player
+        stop
+
+      set {_t} to argument 2
+      set {_a} to round(argument 3 + 0)
+
+      yamlRegisterPlayer({_t})
+      set {_tid} to "%uuid of {_t}%"
+      trackUUID({_tid})
+
+      yamlSetPoints({_tid}, {_a})
+      set yaml value "players.%{_tid}%.name" in "{@yamlId}" to "%{_t}%"
+      save yaml "{@yamlId}"
+
+      syncEventPoints({_tid})
+      rebuildTop()
+
+      send "{@prefix} &aOK: &e%name of {_t}% &a= &e%{_a}% &apoints." to player
+      stop
+
+    if argument 1 is "addpoints":
+      if argument 2 is not set:
+        send "{@prefix} &cUsage: /event addpoints <joueur> <montant>" to player
+        stop
+      if argument 3 is not set:
+        send "{@prefix} &cUsage: /event addpoints <joueur> <montant>" to player
+        stop
+
+      set {_t} to argument 2
+      set {_a} to round(argument 3 + 0)
+
+      yamlRegisterPlayer({_t})
+      set {_tid} to "%uuid of {_t}%"
+      trackUUID({_tid})
+
+      yamlAddPoints({_tid}, {_a})
+      set yaml value "players.%{_tid}%.name" in "{@yamlId}" to "%{_t}%"
+      save yaml "{@yamlId}"
+
+      syncEventPoints({_tid})
+      rebuildTop()
+
+      set {_new} to {event::points::%{_tid}%}
+      if {_new} is not set:
+        set {_new} to yamlGetPoints({_tid})
+
+      send "{@prefix} &aOK: +&e%{_a}% &apoints à &e%name of {_t}% &7(= &e%{_new}%&7)." to player
+      stop
+
+    if argument 1 is "resetpoints":
+      if argument 2 is not set:
+        send "{@prefix} &cUsage: /event resetpoints <joueur>" to player
+        stop
+
+      set {_t} to argument 2
+      yamlRegisterPlayer({_t})
+      set {_tid} to "%uuid of {_t}%"
+      trackUUID({_tid})
+
+      yamlSetPoints({_tid}, 0)
+      set yaml value "players.%{_tid}%.name" in "{@yamlId}" to "%{_t}%"
+      save yaml "{@yamlId}"
+
+      syncEventPoints({_tid})
+      rebuildTop()
+
+      send "{@prefix} &aOK: points reset pour &e%name of {_t}%&a." to player
+      stop
+
+    if argument 1 is "remove":
+      if argument 2 is not set:
+        send "{@prefix} &cUsage: /event remove <joueur>" to player
+        stop
+
+      set {_t} to argument 2
+      set {_tid} to "%uuid of {_t}%"
+
+      yamlEnsureLoaded()
+      delete yaml value "players.%{_tid}%" in "{@yamlId}"
+
+      remove {_tid} from {event::uuids::*}
+      delete {event::points::%{_tid}%}
+
+      save yaml "{@yamlId}"
+      rebuildTop()
+
+      send "{@prefix} &aJoueur &e%name of {_t}% &asupprimé de l’event." to player
+      stop
+
+    send "{@prefix} &cSous-commandes: top/points (public) | force/setpoints/addpoints/resetpoints/remove (admin)" to player
+
+# ------------------------------------------------------------
+# CLICK MENU (gain -> YAML + VAR)
+# ------------------------------------------------------------
+on inventory click:
+  if name of event-inventory is not "{@guiTitle}":
+    stop
+  cancel event
+
+  set {_pid} to "%uuid of player%"
+
+  # cooldown clic
+  if {event::clickcd::%{_pid}%} is set:
+    stop
+  set {event::clickcd::%{_pid}%} to {@clickCooldown}
+
+  if clicked slot is {@slotInfo}:
+    openEventMenu(player)
+    stop
+  if clicked slot is {@slotTop}:
+    openEventMenu(player)
+    stop
+
+  set {_entry} to ""
+  if clicked slot is {@slotItem1}:
+    set {_entry} to {event::active::1}
+  else if clicked slot is {@slotItem2}:
+    set {_entry} to {event::active::2}
+  else if clicked slot is {@slotItem3}:
+    set {_entry} to {event::active::3}
+  else:
+    stop
+
+  set {_parts::*} to split {_entry} at "|"
+  set {_matText} to {_parts::1}
+  set {_ptsText} to {_parts::2}
+  set {_disp} to {_parts::3}
+
+  set {_matType} to {_matText} parsed as item type
+  if {_matType} is not set:
+    stop
+
+  set {_ptsPer} to {_ptsText} parsed as number
+  if {_ptsPer} is not set:
+    set {_ptsPer} to 1
+  set {_ptsPer} to round({_ptsPer} + 0)
+
+  # compte combien le joueur a
+  set {_amount} to 0
+  loop all items in inventory of player:
+    if loop-item is set:
+      if type of loop-item is {_matType}:
+        add amount of loop-item to {_amount}
+
+  if {_amount} <= 0:
+    set {_m} to "{@msgNoItem}"
+    replace all "<name>" with "%{_disp}%" in {_m}
+    send "{@prefix} %{_m}%" to player
+    stop
+
+  # retire tout d'un coup (plus stable)
+  remove {_amount} of {_matType} from inventory of player
+
+  # gain points
+  yamlRegisterPlayer(player)
+  trackUUID({_pid})
+
+  set {_gain} to round({_amount} * {_ptsPer})
+  yamlAddPoints({_pid}, {_gain})
+
+  set yaml value "players.%{_pid}%.name" in "{@yamlId}" to name of player
+  save yaml "{@yamlId}"
+
+  syncEventPoints({_pid})
+  rebuildTop()
+
+  set {_m2} to "{@msgGained}"
+  replace all "<amount>" with "%{_amount}%" in {_m2}
+  replace all "<points>" with "%{_gain}%" in {_m2}
+  send "{@prefix} %{_m2}%" to player
+
+  openEventMenu(player)
+
+on inventory close:
+  if name of event-inventory is "{@guiTitle}":
+    set {_pid} to "%uuid of player%"
+    delete {event::clickcd::%{_pid}%}
+
+# ------------------------------------------------------------
+# RAPPEL — Variables à utiliser dans d'autres skripts
+# ------------------------------------------------------------
+# Points joueur:
+#   {event::points::%uuid of player%}
+#
+# Top en 1 ligne:
+#   {event::topText}
